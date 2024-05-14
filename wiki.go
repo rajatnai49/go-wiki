@@ -14,8 +14,8 @@ type Page struct{
     Body []byte
 }
 
-var templates = template.Must(template.ParseFiles("./pages/edit.html", "./pages/view.html"))
-var validPath = regexp.MustCompile("^/(edit|view|save)/([a-zA-Z0-9]+)$")
+var templates = template.Must(template.ParseFiles("./pages/add.html", "./pages/edit.html", "./pages/view.html"))
+var validPath = regexp.MustCompile("^/(edit|view|save|add)/([a-zA-Z0-9]+)$")
 
 func makeHandler(fn func(http.ResponseWriter, *http.Request, string)) http.HandlerFunc {
     return func(w http.ResponseWriter, r *http.Request) {
@@ -30,7 +30,17 @@ func makeHandler(fn func(http.ResponseWriter, *http.Request, string)) http.Handl
 
 func (p *Page) save() error {
     filename := p.Title + ".txt"
-    return os.WriteFile(filename, p.Body, 0600)
+    file, err := os.OpenFile(filename, os.O_WRONLY | os.O_CREATE | os.O_TRUNC, 0600)
+    if err != nil {
+        return err
+    }
+    defer file.Close()
+
+    _, err = file.Write(p.Body)
+    if err != nil {
+        return err
+    }
+    return nil
 }
 
 func getTitle(w http.ResponseWriter, r *http.Request) (string, error) {
@@ -60,7 +70,6 @@ func rederTemplate(w http.ResponseWriter, tmpl string, p *Page) {
 
 func viewHandler(w http.ResponseWriter, r *http.Request, title string) {
     title, err := getTitle(w,r)
-    log.Printf(title)
     p, err := loadPage(title)
     if err != nil {
         log.Printf("Error loading page: %v", err)
@@ -94,10 +103,29 @@ func saveHandler(w http.ResponseWriter, r *http.Request, title string) {
     http.Redirect(w , r, "/view/"+title, http.StatusFound)
 }
 
+func addHandler(w http.ResponseWriter, r *http.Request) {
+    method := r.Method
+    log.Printf("Method: %s", method)
+    if method == "GET" {
+        rederTemplate(w, "add", nil)
+    } else {
+        title := r.FormValue("title")
+        body := r.FormValue("body")
+        p := &Page{Title: title, Body: []byte(body)}
+        err := p.save()
+        if err != nil {
+            http.Error(w, err.Error(), http.StatusInternalServerError)
+            return
+        }
+        http.Redirect(w , r, "/view/"+title, http.StatusFound)
+    }
+}
+
 func main() {
     http.HandleFunc("/view/", makeHandler(viewHandler))
     http.HandleFunc("/edit/", makeHandler(editHandler))
     http.HandleFunc("/save/", makeHandler(saveHandler))
+    http.HandleFunc("/add/", addHandler)
     log.Fatal(http.ListenAndServe(":8080", nil))
 }
 
